@@ -1,48 +1,71 @@
-# btc-race-bot-20261113
+# btc-race-bot-20261113 — Oversold-Bounce Dip Buyer for CBBTC
 
-A trading bot for make.fun's **Race a BTC trading bot live for 24 hours**
-(`btc-race-24h-20261113-2314`): it trades Coinbase Wrapped BTC (cbBTC)
-against USDC on 1-minute on-chain prices, with $1,000 of paper money.
-Long only, no leverage, no shorts. Nothing is traded for real.
+A bot for the make.fun competition `btc-race-24h-20261113-2314` ("Race a BTC
+trading bot live for 24 hours"). It trades Coinbase Wrapped BTC (CBBTC)
+against USDC on 1-minute on-chain bars, starting from 1,000 USDC of paper
+money, long only, one position at a time.
 
-## Strategy
+## What the bot does
 
-Buy the bounce off a rolling low, but only when the window is deeply
-oversold. A full round trip costs ~26 bps (4 bps fee + 2 bps slippage +
-~7 bps price impact each way), so the bot trades rarely and only where a
-bounce has room to pay for itself.
+On every 1-minute bar the bot looks at the close of CBBTC and decides
+whether to buy, sell, or do nothing. It is an oversold-bounce dip buyer:
 
-- **Entry:** the close has bounced 30 bps above the rolling 60-bar low AND
-  the close is still 200 bps below the window's first close (deeply
-  oversold). Buy the bounce, never chase a top and never catch a knife
-  that has not turned yet. Full cash (capped by `max_weight_bps`).
-- **Exit (whole position):** take-profit 120 bps over cost, or a trailing
-  stop 90 bps below the peak value since entry (safety net for a sharp
-  reversal).
-- After a full exit, wait 120 bars before a new entry. Never trade while
-  warming up. `max_slippage_bps = 100` on every order.
+- It waits for a sharp dip: the current close must sit at least 200 bps
+  below the first close of the previous 60 bars.
+- It only buys once the price has started to bounce: the current close must
+  also be at least 30 bps above the lowest close of those same 60 bars.
+- It buys with all of its cash, capped by the weight limit on equity.
+- It exits on either a take-profit of 120 bps over the position's cost, or a
+  trailing stop of 90 bps below the best value the position has reached
+  since entry.
+- After a sell it sits out for 120 bars before it may buy again, so a
+  falling market cannot be re-bought bar after bar.
+- It never trades during the warm-up bars, and it never trades a bar that
+  carries no CBBTC close.
 
-## Dev-window result (official local grader, `--driver process`)
+The bot is fully deterministic: no clock, no environment, no randomness.
+Every decision comes only from the closes seen so far and the account
+state, so two runs on the same data produce the same orders.
 
-- **Net PnL +7.84 USDC** on the published 24 h dev window (1,440 bars),
-  8 trades, 50% win rate, max drawdown 1.52%, guardrails met.
-  At 2x fees: +4.63 USDC. Reproduced byte for byte.
-- The dev window falls ~5% then rallies off its low. The plain breakout
-  bot from the previous race instance loses on it (-4.10 USDC); the
-  dip-buy entry is what turns this window positive. The dev gate needs
-  net PnL > 0.
+## Parameters
 
-## Layout
+| Parameter | Value |
+| --- | --- |
+| Lookback window | 60 bars |
+| Bounce threshold | 30 bps above the window low |
+| Dip threshold | 200 bps below the window's first close |
+| Take-profit | 120 bps over cost |
+| Trailing stop | 90 bps below peak value |
+| Cooldown after a sell | 120 bars |
+| Max slippage | 100 bps |
+| Asset | CBBTC, long only |
 
-- `main.ts` — the bot (Node 22, `agent-fun/bars-replay/v1`).
-- `vendor/makefun-bars.ts` — the kit's bars SDK, byte-identical copy.
+## Dev-window result (verified locally)
 
-## Run
+Graded on the competition kit's frozen 24-hour dev window with the official
+local grader (`--driver process`):
 
-Grade locally with the competition kit:
+- Net PnL: **+7.838494 USDC** (return 0.007838494)
+- Trades: **8**, win rate **0.500000000**
+- Max drawdown: **0.015230602**
+- Fees: 3.200131 USDC; net PnL at 2x fees: **+4.634337 USDC**
+- Guardrails: **met** (trades ok, symbols ok, drawdown ok)
+- The two grading executions reproduced the action log byte for byte.
+
+## File layout
+
+- `main.ts` — the bot. Speaks `agent-fun/bars-replay/v1` through the kit
+  SDK, one reply per bar, and holds the whole strategy.
+- `vendor/makefun-bars.ts` — the kit's bars SDK shim (copied unchanged from
+  the competition kit), which owns the line protocol, the account state, and
+  order validation.
+
+## How to grade it locally
+
+From the kit directory:
 
 ```
-node cli/makefun.mjs grade-local --kit <kit-dir> --bot . --driver process
+node cli/makefun.mjs grade-local --kit . --bot ../../btc-race-bot-20261113 --driver process
 ```
 
-The kit is `https://make.fun/c/btc-race-24h-20261113-2314/kit`.
+Kit: https://make.fun/c/btc-race-24h-20261113-2314/kit
